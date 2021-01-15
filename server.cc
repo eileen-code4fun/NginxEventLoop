@@ -28,7 +28,7 @@ void abort(const char msg[]) {
 void registerFd(int efd, int fd) {
   struct epoll_event event;
   event.data.fd = fd;
-  event.events = EPOLLIN | EPOLLET;
+  event.events = EPOLLIN;
   if (epoll_ctl (efd, EPOLL_CTL_ADD, fd, &event) < 0) {
     abort("Failed to add FD to epoll");
   }
@@ -61,19 +61,15 @@ void serve(pid_t pid, int sfd, struct sockaddr* addr, socklen_t* len) {
       }
       if (events[i].data.fd == sfd) {
         // Events on listening socket.
-        while(true) {
-          // Accept until the queue is empty. Multiple listening events may occur for one epoll.
-          int cfd = accept(sfd, addr, len);
-          if (cfd == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            // Empty event on the listening queue.
-            break;
-          }
-          if (cfd < 0) {
-            abort("Failed to accept client socket");
-          }
-          setNonblocking(cfd);
-          registerFd(efd, cfd);
+        int cfd = accept(sfd, addr, len);
+        if (cfd == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+          // Empty event on the listening queue. Other processes have grabbed it.
+          continue;
+        } else if (cfd < 0) {
+          abort("Failed to accept client socket");
         }
+        setNonblocking(cfd);
+        registerFd(efd, cfd);
       } else {
         // Event on read.
         char buffer[512];
